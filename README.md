@@ -1,1 +1,1 @@
-Play! framework application for server of dnd application.
+Play! framework code for server of dnd application.
