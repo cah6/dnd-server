@@ -1,7 +1,0 @@
-package models
-
-object CharacterModel{
-
-	def apply(types: Map[GameType, GameModel]): CharacterModel =
-    	TypedActor(Akka.system).typedActorOf(TypedProps(classOf[CharacterModel], new CharacterModelImpl(types)), "g")
-}

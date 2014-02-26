@@ -7,4 +7,4 @@
 GET     /assets/*file               controllers.Assets.at(path="/public", file)
 
 # Home page
-GET 	/connect  					controllers.Application.index
+GET 	/connect/:id				controllers.Application.connect(id: String)

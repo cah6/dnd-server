@@ -1,21 +1,18 @@
 package controllers
 
+import play.api.libs.json._
 import play.api.mvc._
 import play.api.libs.iteratee._
 import play.api.libs.concurrent.Execution.Implicits._
+import models._
+
 
 object Application extends Controller {
 
-	def index =  WebSocket.using[String] { request =>
-		//Concurernt.broadcast returns (Enumerator, Concurrent.Channel)
-		val (out,channel) = Concurrent.broadcast[String]
-	   
-		//log the message to stdout and send response back to client
-		val in = Iteratee.foreach[String] {
-			msg => println(msg)
-			//the channel will push to the Enumerator   
-			channel push("RESPONSE: " + msg)
-		}
-		(in,out)
+	/**
+   	 * Handles the chat websocket.
+     */
+	def connect(roomname: String) = WebSocket.async[JsValue] { request  =>
+   		ChatRoom.join(roomname)
 	}
 }
