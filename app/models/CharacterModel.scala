@@ -27,24 +27,24 @@ object ChatRoom{
 		((defaultRoom) ? Join(username)).map {
 
 			case Connected(enumerator) => 
-		        // Create an Iteratee to consume the feed
-		        val iteratee = Iteratee.foreach[JsValue] { event =>
-		        	//whenever a message is received on the websocket, send it to the room as a talk
-		        	defaultRoom ! Message(username, event)
-		        	}.map{ _ =>
-		        		defaultRoom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
-		        	}
-		        	(iteratee,enumerator)
+				// Create an Iteratee to consume the feed
+				val iteratee = Iteratee.foreach[JsValue] { event =>
+					//whenever a message is received on the websocket, send it to the room as a Message
+					defaultRoom ! Message(username, event)
+					}.map{ _ =>
+						defaultRoom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
+					}
+					(iteratee,enumerator)
 
-		    // Connection error: don't open an iteratee
-		    case CannotConnect(error) => 
-	        
-	        // A finished Iteratee sending EOF
-	        val iteratee = Done[JsValue, Unit]((),Input.EOF)
-	        // Send an error and close the socket
-	        val enumerator =  Enumerator[JsValue](JsObject(Seq("error" -> JsString(error)))).andThen(Enumerator.enumInput(Input.EOF))
-	        (iteratee,enumerator)
-	    }
+			// Connection error: don't open an iteratee
+			case CannotConnect(error) => 
+			
+			// A finished Iteratee sending EOF
+			val iteratee = Done[JsValue, Unit]((),Input.EOF)
+			// Send an error and close the socket
+			val enumerator =  Enumerator[JsValue](JsObject(Seq("error" -> JsString(error)))).andThen(Enumerator.enumInput(Input.EOF))
+			(iteratee,enumerator)
+		}
 
 	}
 }
@@ -52,10 +52,9 @@ object ChatRoom{
 class ChatRoom extends Actor {
 
 	type Point = (Int, Int)
-	val gridSize: Point = (10,15)
+	val gridSize: Point = (4,3)
 
-	var members = Set.empty[String]
-	val (chatEnumerator, chatChannel) = Concurrent.broadcast[JsValue]
+	var members = Map.empty[String, Concurrent.Channel[JsValue]]
 
 	def receive = {
 
@@ -64,9 +63,11 @@ class ChatRoom extends Actor {
 				sender ! CannotConnect("This username is already used")	//report back that user could not connect
 			}
 			else {
-				println("Adding " + username + " to chatroom.")
-				members = members + username
-				sender ! Connected(chatEnumerator)						//report back that user has connected
+				val e = Concurrent.unicast[JsValue]{c =>
+					println("Adding " + username + " to chatroom.")
+					members = members + (username -> c)
+				}
+				sender ! Connected(e)						//report back that user has connected
 				self ! NotifyJoin(username)								//push to notify everyone users has joined
 			}
 		}
@@ -78,14 +79,20 @@ class ChatRoom extends Actor {
 							"gridSize" -> JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2)))
 						))
 					))
-			chatChannel.push(msg) //tell user size of map
+			for ((recipient, connection) <- members
+				if (recipient == username)
+				) yield connection.push(msg)
+			//chatChannel.push(msg) //tell user size of map
 
-			//notifyAll("join", username, "has entered the room")
+			//notifyAll("join", username, "has entered the room") //tell everybody that this player joined
 		}
 
-		case Message(username, json: JsValue) => {
-			println((json \ "position")(0))
-			println((json \ "position")(1))
+		case Message(username: String, json: JsValue) => {
+			println(username + " sent:")
+			(json \ "type") match {
+				case s: JsString		=> println("User sent: " + (json \ "data" \ s.as[String]))
+				case _ 					=> println("Did not recognize data type.")
+			}
 		}
 
 		case Quit(username) => {
@@ -105,11 +112,11 @@ class ChatRoom extends Actor {
 				"user" -> JsString(user),
 				"message" -> JsString(text),
 				"recipient" -> JsArray(
-					members.toList.map(JsString)
+					//members.toList.map(JsString)
 					)
 				)
 			)
-		chatChannel.push(msg)
+		//chatChannel.push(msg)
 	}
 
 }
