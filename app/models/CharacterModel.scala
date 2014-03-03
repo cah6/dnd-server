@@ -26,7 +26,7 @@ object ChatRoom{
 
 		((defaultRoom) ? Join(username)).map {
 
-			case Connected(enumerator) => 
+			case Connected(enumerator) => {
 				// Create an Iteratee to consume the feed
 				val iteratee = Iteratee.foreach[JsValue] { event =>
 					//whenever a message is received on the websocket, send it to the room as a Message
@@ -35,6 +35,7 @@ object ChatRoom{
 						defaultRoom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
 					}
 					(iteratee,enumerator)
+			}
 
 			// Connection error: don't open an iteratee
 			case CannotConnect(error) => 
@@ -66,31 +67,34 @@ class ChatRoom extends Actor {
 				val e = Concurrent.unicast[JsValue]{c =>
 					println("Adding " + username + " to chatroom.")
 					members = members + (username -> c)
+					self ! NotifyJoin(username)
 				}
 				sender ! Connected(e)						//report back that user has connected
-				self ! NotifyJoin(username)								//push to notify everyone users has joined
 			}
 		}
 
 		case NotifyJoin(username) => {
-			val msg = JsObject(List(
-					"recipient" -> JsArray(JsString(username) :: Nil),
-					"data"		-> JsObject(Seq(
-							"gridSize" -> JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2)))
-						))
-					))
-			for ((recipient, connection) <- members
-				if (recipient == username)
-				) yield connection.push(msg)
-			//chatChannel.push(msg) //tell user size of map
+			notifySome("gridSize", "null", JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2))), Set(username))
+			var currentUsers: Seq[String] = (for ((k, v) <- (members - username)) yield k).toSeq
+			notifySome("players", "null", Json.toJson(currentUsers), Set(username));
+			// val msg = JsObject(List(
+			// 		"type"		-> JsString("gridSize"),
+			// 		"data"		-> JsObject(Seq(
+			// 				"gridSize" -> JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2)))
+			// 			))
+			// 		))
+			//Send a message solely to new user to give them the grid size to display.
+			// println("Sending grid size to " + username)
+			// for ((recipient, connection) <- members
+			// 	if (recipient == username)
+			// 	) yield connection.push(msg)
 
-			//notifyAll("join", username, "has entered the room") //tell everybody that this player joined
+			notifyAll("join", username, JsNull) //tell everybody that this player joined
 		}
 
 		case Message(username: String, json: JsValue) => {
-			println(username + " sent:")
 			(json \ "type") match {
-				case s: JsString		=> println("User sent: " + (json \ "data" \ s.as[String]))
+				case s: JsString		=> notifyAll(s.as[String], username, json \ "data")
 				case _ 					=> println("Did not recognize data type.")
 			}
 		}
@@ -98,25 +102,31 @@ class ChatRoom extends Actor {
 		case Quit(username) => {
 			println(username + " has left.")
 			members = members - username
-			//notifyAll("quit", username, "has left the room")
+			notifyAll("quit", username, JsNull)
 		}
 
 	}
 
 	//Send data to all users.
-	def notifyAll(kind: String, user: String, text: String) {
-		println("In notify all, kind = " + kind)
-		val msg = JsObject(
-			Seq(
-				"kind" -> JsString(kind),
-				"user" -> JsString(user),
-				"message" -> JsString(text),
-				"recipient" -> JsArray(
-					//members.toList.map(JsString)
-					)
-				)
-			)
-		//chatChannel.push(msg)
+	def notifyAll(dataType: String, player: String, data: JsValue) {
+		val msg = JsObject(List(
+					"type" 		-> JsString(dataType),
+					"player"	-> JsString(player),
+					"data"		-> data))
+
+		for (channel <- members.values){
+			channel.push(msg)
+		}
+	}
+
+	def notifySome(dataType: String, player: String, data: JsValue, recipients: Set[String]) {
+		val msg = JsObject(List(
+					"type" 		-> JsString(dataType),
+					"player"	-> JsString(player),
+					"data"		-> data))
+		for ((member, channel) <- members filterKeys recipients) {
+			channel.push(msg)
+		}
 	}
 
 }

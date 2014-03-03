@@ -1,0 +1,4 @@
+update circle position on click
+update circle position on message receive
+notifyAll on plater join / leave
+handle player join / leave by changing their circle in unity
