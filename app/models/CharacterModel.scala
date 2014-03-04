@@ -7,6 +7,7 @@ import scala.language.postfixOps
 
 import play.api._
 import play.api.libs.json._
+import play.api.libs.functional.syntax._
 import play.api.libs.iteratee._
 import play.api.libs.concurrent._
 
@@ -52,10 +53,28 @@ object ChatRoom{
 
 class ChatRoom extends Actor {
 
-	type Point = (Int, Int)
-	val gridSize: Point = (4,3)
+	//type Point = (Int, Int)
+	//val gridSize: Point = (4,3)
 
 	var members = Map.empty[String, Concurrent.Channel[JsValue]]
+
+	implicit val pointFormat = (
+		(__ \ "x").format[Int] and
+		(__ \ "y").format[Int]
+		)(Point.apply, unlift(Point.unapply)) 
+
+	implicit val playerFormat = (
+		(__ \ "type").format[String] and 
+		(__ \ "name").format[String] and
+		(__ \ "location").format[Point]
+		)(Player.apply, unlift(Player.unapply))
+
+	implicit val startInfoFormat = (
+		(__ \ "type").format[String] and
+		(__ \ "gridSize").format[Point] and
+		(__ \ "players").format[List[Player]]
+		)(StartInfo.apply, unlift(StartInfo.unapply)) 
+
 
 	def receive = {
 
@@ -74,56 +93,51 @@ class ChatRoom extends Actor {
 		}
 
 		case NotifyJoin(username) => {
-			notifySome("gridSize", "null", JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2))), Set(username))
-			var currentUsers: Seq[String] = (for ((k, v) <- (members - username)) yield k).toSeq
-			notifySome("players", "null", Json.toJson(currentUsers), Set(username));
-			// val msg = JsObject(List(
-			// 		"type"		-> JsString("gridSize"),
-			// 		"data"		-> JsObject(Seq(
-			// 				"gridSize" -> JsArray(Seq(JsNumber(gridSize._1), JsNumber(gridSize._2)))
-			// 			))
-			// 		))
-			//Send a message solely to new user to give them the grid size to display.
-			// println("Sending grid size to " + username)
-			// for ((recipient, connection) <- members
-			// 	if (recipient == username)
-			// 	) yield connection.push(msg)
-
-			notifyAll("join", username, JsNull) //tell everybody that this player joined
+			//tell user starting info: the grid size and current players
+			//TODO: get list of current players
+			val startInfo = StartInfo("startInfoType", Point(4,3), List(Player("playerType", "imaginaryFriend", Point(2, 1))))
+			println(Json.toJson(startInfo));
+			notifySome(Json.toJson(startInfo), Set(username))
+			
+			//and tell everybody that this user has joined, so they can add to their local copy
+			val joinInfo = Player("joinType", username, Point(0, 0))
+			notifyAll(Json.toJson(joinInfo))
 		}
 
+		//All received messages are propogated as a Message case. Pattern match to find the message type here,
+		//then act accordingly.
 		case Message(username: String, json: JsValue) => {
-			(json \ "type") match {
-				case s: JsString		=> notifyAll(s.as[String], username, json \ "data")
+			(json \ "type").as[String] match {
+				case "playerType"		=> {
+					println("Parsing playerType data")
+					val x = (json \ "location" \ "x").as[Int]
+					val y = (json \ "location" \ "y").as[Int]
+					val positionInfo = Player("positionType", username, Point(x, y))
+					notifyAll(Json.toJson(positionInfo))
+				}
 				case _ 					=> println("Did not recognize data type.")
 			}
 		}
 
+		//Automatically called from server system when a client connection is closed. Tells this to all
+		//connected users.
 		case Quit(username) => {
 			println(username + " has left.")
 			members = members - username
-			notifyAll("quit", username, JsNull)
+			val quitInfo = Player("quitType", username, Point(0, 0))
+			notifyAll(Json.toJson(quitInfo))
 		}
 
 	}
 
 	//Send data to all users.
-	def notifyAll(dataType: String, player: String, data: JsValue) {
-		val msg = JsObject(List(
-					"type" 		-> JsString(dataType),
-					"player"	-> JsString(player),
-					"data"		-> data))
-
+	def notifyAll(msg: JsValue) {
 		for (channel <- members.values){
 			channel.push(msg)
 		}
 	}
 
-	def notifySome(dataType: String, player: String, data: JsValue, recipients: Set[String]) {
-		val msg = JsObject(List(
-					"type" 		-> JsString(dataType),
-					"player"	-> JsString(player),
-					"data"		-> data))
+	def notifySome(msg: JsValue, recipients: Set[String]) {
 		for ((member, channel) <- members filterKeys recipients) {
 			channel.push(msg)
 		}
