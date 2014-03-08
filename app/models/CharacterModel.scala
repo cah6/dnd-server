@@ -17,6 +17,11 @@ import akka.pattern.ask
 import play.api.Play.current
 import play.api.libs.concurrent.Execution.Implicits._
 
+import play.api.db._
+
+import anorm._
+import anorm.SqlParser._
+
 object ChatRoom{
 
 	implicit val timeout = Timeout(10 second)
@@ -75,6 +80,14 @@ class ChatRoom extends Actor {
 		(__ \ "players").format[List[Player]]
 		)(StartInfo.apply, unlift(StartInfo.unapply)) 
 
+	val player = {
+		get[Long]("id") ~ 
+		get[String]("name") ~
+		get[Int]("x") ~
+		get[Int]("y") map {
+			case id~name~x~y => Player("playerType", name, Point(x, y))
+		}
+	}
 
 	def receive = {
 
@@ -94,19 +107,22 @@ class ChatRoom extends Actor {
 
 		case NotifyJoin(username) => {
 			//tell user starting info: the grid size and current players
-			//TODO: get list of current players
-			val startInfo = StartInfo("startInfoType", Point(4,3), List(Player("playerType", "imaginaryFriend", Point(2, 1))))
+			val startInfo = StartInfo("startInfoType", Point(4,3), getAllPlayers())
 			println(Json.toJson(startInfo));
 			notifySome(Json.toJson(startInfo), Set(username))
 			
-			//and tell everybody that this user has joined, so they can add to their local copy
+			//tell everybody that this user has joined, so they can add to their local copy
 			val joinInfo = Player("joinType", username, Point(0, 0))
 			notifyAll(Json.toJson(joinInfo))
+
+			//add this new user to our databsae
+			create(username, 0, 0)
 		}
 
 		//All received messages are propogated as a Message case. Pattern match to find the message type here,
 		//then act accordingly.
 		case Message(username: String, json: JsValue) => {
+			println("received message from " + username)
 			(json \ "type").as[String] match {
 				case "playerType"		=> {
 					println("Parsing playerType data")
@@ -126,6 +142,9 @@ class ChatRoom extends Actor {
 			members = members - username
 			val quitInfo = Player("quitType", username, Point(0, 0))
 			notifyAll(Json.toJson(quitInfo))
+
+			//remove user from database
+			delete(username)
 		}
 
 	}
@@ -141,6 +160,28 @@ class ChatRoom extends Actor {
 		for ((member, channel) <- members filterKeys recipients) {
 			channel.push(msg)
 		}
+	}
+
+	def getAllPlayers(): List[Player] = DB.withConnection { implicit c =>
+	  SQL("select * from core").as(player *)
+	}
+
+	def create(name: String, x: Int, y: Int) {
+	  DB.withConnection { implicit c =>
+	    SQL("insert into core (name, x, y) values ({name}, {x}, {y})").on(
+	      'name -> name,
+	      'x 	-> x,
+	      'y	-> y
+	    ).executeUpdate()
+	  }
+	}
+
+	def delete(name: String) {
+	  DB.withConnection { implicit c =>
+	    SQL("delete from core where name = {name}").on(
+	      'name -> name
+	    ).executeUpdate()
+	  }
 	}
 
 }
