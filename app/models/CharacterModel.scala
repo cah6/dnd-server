@@ -22,23 +22,29 @@ import play.api.db._
 import anorm._
 import anorm.SqlParser._
 
-object ChatRoom{
+object ChatRoom {
 
 	implicit val timeout = Timeout(10 second)
 
-	lazy val defaultRoom = Akka.system.actorOf(Props[ChatRoom])
+	var chatrooms: Map[String, ActorRef] = Map.empty[String, ActorRef]
 
-	def join(username:String):Future[(Iteratee[JsValue,_],Enumerator[JsValue])] = {
+	def join(roomname: String, username:String): Future[(Iteratee[JsValue,_],Enumerator[JsValue])] = {
 
-		((defaultRoom) ? Join(username)).map {
+		//check if the specific chatroom exists. if not, make it and, regardless, use it to join a player
+		if (!chatrooms.contains(roomname)){
+			chatrooms = chatrooms + (roomname -> Akka.system.actorOf(Props[ChatRoom]))
+		}
+		val chatroom: ActorRef = chatrooms(roomname)
+
+		((chatroom) ? Join(username)).map {
 
 			case Connected(enumerator) => {
 				// Create an Iteratee to consume the feed
 				val iteratee = Iteratee.foreach[JsValue] { event =>
 					//whenever a message is received on the websocket, send it to the room as a Message
-					defaultRoom ! Message(username, event)
+					chatroom ! Message(username, event)
 					}.map{ _ =>
-						defaultRoom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
+						chatroom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
 					}
 					(iteratee,enumerator)
 			}
@@ -80,6 +86,7 @@ class ChatRoom extends Actor {
 		(__ \ "players").format[List[Player]]
 		)(StartInfo.apply, unlift(StartInfo.unapply)) 
 
+	//define how to retrieve a player entry from the database
 	val player = {
 		get[Long]("id") ~ 
 		get[String]("name") ~
