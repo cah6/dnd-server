@@ -12,7 +12,7 @@ object Application extends Controller {
 	/**
    	 * Handles the chat websocket.
      */
-	def connect(room: String, user: String) = WebSocket.async[JsValue] { request  =>
-   		ChatRoom.join(room, user)
+	def connect(user: String) = WebSocket.async[JsValue] { request  =>
+   		ChatRoom.join(user)
 	}
 }

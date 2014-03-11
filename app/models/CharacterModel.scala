@@ -26,15 +26,17 @@ object ChatRoom {
 
 	implicit val timeout = Timeout(10 second)
 
-	var chatrooms: Map[String, ActorRef] = Map.empty[String, ActorRef]
+	//var chatrooms: Map[String, ActorRef] = Map.empty[String, ActorRef]
 
-	def join(roomname: String, username:String): Future[(Iteratee[JsValue,_],Enumerator[JsValue])] = {
+	lazy val chatroom = Akka.system.actorOf(Props[ChatRoom])
+
+	def join(username:String): Future[(Iteratee[JsValue,_],Enumerator[JsValue])] = {
 
 		//check if the specific chatroom exists. if not, make it and, regardless, use it to join a player
-		if (!chatrooms.contains(roomname)){
-			chatrooms = chatrooms + (roomname -> Akka.system.actorOf(Props[ChatRoom]))
-		}
-		val chatroom: ActorRef = chatrooms(roomname)
+		// if (!chatrooms.contains(roomname)){
+		// 	chatrooms = chatrooms + (roomname -> Akka.system.actorOf(Props[ChatRoom]))
+		// }
+		// val chatroom: ActorRef = chatrooms(roomname)
 
 		((chatroom) ? Join(username)).map {
 
@@ -106,7 +108,7 @@ class ChatRoom extends Actor {
 				val e = Concurrent.unicast[JsValue]{c =>
 					println("Adding " + username + " to chatroom.")
 					members = members + (username -> c)
-					self ! NotifyJoin(username)
+					//self ! NotifyJoin(username)
 				}
 				sender ! Connected(e)						//report back that user has connected
 			}
