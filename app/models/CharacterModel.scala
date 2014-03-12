@@ -22,13 +22,15 @@ import play.api.db._
 import anorm._
 import anorm.SqlParser._
 
+import controllers._
+
 object ChatRoom {
 
 	implicit val timeout = Timeout(10 second)
 
 	//var chatrooms: Map[String, ActorRef] = Map.empty[String, ActorRef]
 
-	lazy val chatroom = Akka.system.actorOf(Props[ChatRoom])
+	lazy val connectPoint = Akka.system.actorOf(Props[ChatRoom])
 
 	def join(username:String): Future[(Iteratee[JsValue,_],Enumerator[JsValue])] = {
 
@@ -38,15 +40,15 @@ object ChatRoom {
 		// }
 		// val chatroom: ActorRef = chatrooms(roomname)
 
-		((chatroom) ? Join(username)).map {
+		((connectPoint) ? Join(username)).map {
 
 			case Connected(enumerator) => {
 				// Create an Iteratee to consume the feed
 				val iteratee = Iteratee.foreach[JsValue] { event =>
 					//whenever a message is received on the websocket, send it to the room as a Message
-					chatroom ! Message(username, event)
+					connectPoint ! Message(username, event)
 					}.map{ _ =>
-						chatroom ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
+						connectPoint ! Quit(username)	//if the user leaves (comm stream closes), tell everyone that
 					}
 					(iteratee,enumerator)
 			}
@@ -69,8 +71,10 @@ class ChatRoom extends Actor {
 	//type Point = (Int, Int)
 	//val gridSize: Point = (4,3)
 
+	//map of all online users to the channel we talk to them with
 	var members = Map.empty[String, Concurrent.Channel[JsValue]]
 
+	//implicit vals are so we can easily format defined classes to JSON to send
 	implicit val pointFormat = (
 		(__ \ "x").format[Int] and
 		(__ \ "y").format[Int]
@@ -88,59 +92,71 @@ class ChatRoom extends Actor {
 		(__ \ "players").format[List[Player]]
 		)(StartInfo.apply, unlift(StartInfo.unapply)) 
 
-	//define how to retrieve a player entry from the database
-	val player = {
+	//define how to retrieve a user from SQL database of all users
+	val user = {
 		get[Long]("id") ~ 
-		get[String]("name") ~
-		get[Int]("x") ~
-		get[Int]("y") map {
-			case id~name~x~y => Player("playerType", name, Point(x, y))
+		get[String]("username") ~
+		get[Boolean]("isOnline") map {
+			case id~username~isOnline => User(id, username, isOnline)
 		}
 	}
 
 	def receive = {
 
 		case Join(username) => {
-			if(members.contains(username)) {
-				sender ! CannotConnect("This username is already used")	//report back that user could not connect
+			val count = numUsers(username)
+			
+			//if we don't have them in the database, create a new entry for them
+			if (count == 0){
+				println("Creating a new user for " + username)
+				create(username, true)
 			}
-			else {
+			//if we have them in the database, set isOnline to true and connect them
+			else if (count == 1){
+				println("Connecting existing user " + username)
 				val e = Concurrent.unicast[JsValue]{c =>
-					println("Adding " + username + " to chatroom.")
+					println("Adding " + username + " to server.")
 					members = members + (username -> c)
-					//self ! NotifyJoin(username)
+					setOnline(username)
 				}
 				sender ! Connected(e)						//report back that user has connected
 			}
+			//if we have 2 or more in database, something went wrong
+			else {
+				println(count + " users with the same name, should not happen.")
+				sender ! CannotConnect("This username is already used")	//report back that user could not connect
+			}
 		}
 
-		case NotifyJoin(username) => {
-			//tell user starting info: the grid size and current players
-			val startInfo = StartInfo("startInfoType", Point(4,3), getAllPlayers())
-			println(Json.toJson(startInfo));
-			notifySome(Json.toJson(startInfo), Set(username))
+		// case NotifyJoin(username) => {
+		// 	//tell user starting info: the grid size and current players
+		// 	val startInfo = StartInfo("startInfoType", Point(4,3), getAllPlayers())
+		// 	println(Json.toJson(startInfo));
+		// 	notifySome(Json.toJson(startInfo), Set(username))
 			
-			//tell everybody that this user has joined, so they can add to their local copy
-			val joinInfo = Player("joinType", username, Point(0, 0))
-			notifyAll(Json.toJson(joinInfo))
+		// 	//tell everybody that this user has joined, so they can add to their local copy
+		// 	val joinInfo = Player("joinType", username, Point(0, 0))
+		// 	notifyAll(Json.toJson(joinInfo))
 
-			//add this new user to our databsae
-			create(username, 0, 0)
-		}
+		// 	//add this new user to our database
+		// 	create(username, 0, 0)
+		// }
 
 		//All received messages are propogated as a Message case. Pattern match to find the message type here,
 		//then act accordingly.
 		case Message(username: String, json: JsValue) => {
 			println("received message from " + username)
 			(json \ "type").as[String] match {
+				case "joinGameType"		=> {
+					val gamename = (json \ "gamename").as[String]
+				}
 				case "playerType"		=> {
-					println("Parsing playerType data")
 					val x = (json \ "location" \ "x").as[Int]
 					val y = (json \ "location" \ "y").as[Int]
 					val positionInfo = Player("positionType", username, Point(x, y))
 					notifyAll(Json.toJson(positionInfo))
 				}
-				case _ 					=> println("Did not recognize data type.")
+				case _ 	=> println("Did not recognize data type.")
 			}
 		}
 
@@ -148,49 +164,69 @@ class ChatRoom extends Actor {
 		//connected users.
 		case Quit(username) => {
 			println(username + " has left.")
-			members = members - username
-			val quitInfo = Player("quitType", username, Point(0, 0))
-			notifyAll(Json.toJson(quitInfo))
-
-			//remove user from database
-			delete(username)
+			members = members - username;
+			//set user to be offline
+			setOffline(username)
 		}
 
 	}
 
 	//Send data to all users.
 	def notifyAll(msg: JsValue) {
-		for (channel <- members.values){
-			channel.push(msg)
-		}
+		// for (channel <- members.values){
+		// 	channel.push(msg)
+		// }
 	}
 
 	def notifySome(msg: JsValue, recipients: Set[String]) {
-		for ((member, channel) <- members filterKeys recipients) {
-			channel.push(msg)
+		// for ((member, channel) <- members filterKeys recipients) {
+		// 	channel.push(msg)
+		// }
+	}
+
+	// def getAllPlayers(): List[Player] = DB.withConnection { implicit c =>
+	// 	SQL("select * from core").as(player *)
+	// }
+
+	def numUsers(username: String): Long = {
+		play.api.db.DB.withConnection { implicit c =>
+			SQL("select count(*) from users where username = {username}").on(
+				'username -> username
+				).as(scalar[Long].single)
 		}
 	}
 
-	def getAllPlayers(): List[Player] = DB.withConnection { implicit c =>
-	  SQL("select * from core").as(player *)
+	def create(username: String, isOnline: Boolean) {
+		play.api.db.DB.withConnection { implicit c =>
+			SQL("insert into users (username, isOnline) values ({username}, {isOnline})").on(
+				'username -> username,
+				'isOnline -> true
+				).executeUpdate()
+		}
 	}
 
-	def create(name: String, x: Int, y: Int) {
-	  DB.withConnection { implicit c =>
-	    SQL("insert into core (name, x, y) values ({name}, {x}, {y})").on(
-	      'name -> name,
-	      'x 	-> x,
-	      'y	-> y
-	    ).executeUpdate()
-	  }
+	def delete(username: String) {
+		play.api.db.DB.withConnection { implicit c =>
+			SQL("delete from users where username = {username}").on(
+				'username -> username
+				).executeUpdate()
+		}
 	}
 
-	def delete(name: String) {
-	  DB.withConnection { implicit c =>
-	    SQL("delete from core where name = {name}").on(
-	      'name -> name
-	    ).executeUpdate()
-	  }
+	def setOffline(username: String) {
+		play.api.db.DB.withConnection { implicit c =>
+			SQL("update users set isOnline=false where username={username}").on(
+				'username -> username
+				).executeUpdate()
+		}
+	}
+
+	def setOnline(username: String) {
+		play.api.db.DB.withConnection { implicit c =>
+			SQL("update users set isOnline=true where username={username}").on(
+				'username -> username
+				).executeUpdate()
+		}
 	}
 
 }
@@ -202,3 +238,5 @@ case class NotifyJoin(username: String)
 
 case class Connected(enumerator:Enumerator[JsValue])
 case class CannotConnect(msg: String)
+
+case class User(id: Long, username: String, isOnline: Boolean)

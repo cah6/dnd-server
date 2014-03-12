@@ -3,15 +3,13 @@
 # --- !Ups
 
 CREATE SEQUENCE user_id_seq;
-CREATE TABLE core (
+CREATE TABLE users (
     id integer NOT NULL DEFAULT nextval('user_id_seq'),
-    name varchar(20),
-    class varchar(20),
-    x int,
-    y int
+    username varchar(20),
+    isOnline boolean
 );
  
 # --- !Downs
  
-DROP TABLE core;
+DROP TABLE users;
 DROP SEQUENCE user_id_seq;
