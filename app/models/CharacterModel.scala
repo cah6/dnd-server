@@ -145,10 +145,11 @@ class ChatRoom extends Actor {
 		//All received messages are propogated as a Message case. Pattern match to find the message type here,
 		//then act accordingly.
 		case Message(username: String, json: JsValue) => {
-			println("received message from " + username)
+			println("received message " + json + " from " + username)
 			(json \ "type").as[String] match {
 				case "joinGameType"		=> {
 					val gamename = (json \ "gamename").as[String]
+					mongoDB.createRoom(gamename)
 				}
 				case "playerType"		=> {
 					val x = (json \ "location" \ "x").as[Int]

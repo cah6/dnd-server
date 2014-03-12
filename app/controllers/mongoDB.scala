@@ -22,10 +22,17 @@ object mongoDB extends Controller with MongoController {
 
 	def rooms: JSONCollection = db.collection[JSONCollection]("rooms")
 
-	def createRoom(roomname: String): Future[LastError] = {
+	// def createRoom(roomname: String): Future[LastError] = {
+	// 	val room = Room(roomname, List[Long]())
+	//     // insert the user
+	//     rooms.insert(room)
+	// }
+
+	def createRoom(roomname: String) = Action.async {
 		val room = Room(roomname, List[Long]())
 	    // insert the user
-	    rooms.insert(room)
+	    val futureResult = rooms.insert(room)
+	    futureResult.map(_ => Ok)
 	}
 
 }
