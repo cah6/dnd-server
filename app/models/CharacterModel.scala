@@ -149,7 +149,7 @@ class ChatRoom extends Actor {
 			(json \ "type").as[String] match {
 				case "joinGameType"		=> {
 					val gamename = (json \ "gamename").as[String]
-					mongoDB.createRoom(gamename)
+					RoomDAO.findByRoomname(gamename)
 				}
 				case "playerType"		=> {
 					val x = (json \ "location" \ "x").as[Int]
