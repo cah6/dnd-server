@@ -18,8 +18,6 @@ import akka.pattern.ask
 import play.api.Play.current
 import play.api.libs.concurrent.Execution.Implicits._
 
-import play.api.db._
-
 import anorm._
 import anorm.SqlParser._
 
@@ -137,6 +135,9 @@ class ChatRoom extends Actor {
 					val gamename = (json \ "gamename").as[String]
 					//go through creation routine
 					RoomDAO.insertOrUpdate(gamename, userID)
+				}
+				case "createCharacterType"	=> {
+					//TODO!
 				}
 				case "playerType"		=> {
 					val x = (json \ "location" \ "x").as[Int]
