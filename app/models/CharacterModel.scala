@@ -145,7 +145,7 @@ class ChatRoom extends Actor {
 					CharacterDAO.insert(character)
 				}
 				case "addCharacterType" => {
-					
+					//add pre-made character with specified name to the game user is currently active in
 				}
 				case "playerType" => {
 					val x = (json \ "location" \ "x").as[Int]
@@ -162,6 +162,8 @@ class ChatRoom extends Actor {
 			println(s"Removing $userID from server connection list.")
 			//remove this channel from the member's list of channels
 			members(userID) = members(userID) diff List(channel)
+			//update user's active status on all rooms
+			RoomDAO.setInactive(userID)
 		}
 
 	}

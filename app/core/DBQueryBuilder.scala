@@ -34,4 +34,5 @@ object DBQueryBuilder {
 	def unset(field: String): JsObject = Json.obj("$unset" -> Json.obj(field -> 1))
 
 	def inc(field: String, amount: Int) = Json.obj("$inc" -> Json.obj(field -> amount))
+
 }

@@ -29,7 +29,7 @@ trait DocumentDAO[T <: IdentifiableModel] extends BaseDAO {
 
 	def find(query: JsObject = Json.obj())(implicit reader: Reads[T]): Future[List[T]] = {
 		Logger.debug(s"Finding documents: [collection=$collectionName, query=$query]")
-		collection.find(query).cursor[T].toList()
+		collection.find(query).cursor[T].collect[List]()
 	}
 
 	def findById(id: String)(implicit reader: Reads[T]): Future[Option[T]] = findOne(DBQueryBuilder.id(id))
