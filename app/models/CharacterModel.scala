@@ -131,15 +131,23 @@ class ChatRoom extends Actor {
 		case Message(userID: String, json: JsValue) => {
 			println("received message " + json + " from " + userID)
 			(json \ "type").as[String] match {
-				case "joinGameType"		=> {
+				case "joinGameType" => {
 					val gamename = (json \ "gamename").as[String]
 					//go through creation routine
 					RoomDAO.insertOrUpdate(gamename, userID)
 				}
-				case "createCharacterType"	=> {
-					//TODO!
+				case "createCharacterType" => {
+					val character = Character(	(json \ "name").as[String], 
+												(json \ "className").as[String],
+												(json \ "race").as[String], 
+												userID)
+					//TODO: maybe give back some confirmation that it was made successfully?
+					CharacterDAO.insert(character)
 				}
-				case "playerType"		=> {
+				case "addCharacterType" => {
+					
+				}
+				case "playerType" => {
 					val x = (json \ "location" \ "x").as[Int]
 					val y = (json \ "location" \ "y").as[Int]
 					val positionInfo = Player("positionType", userID, Point(x, y))

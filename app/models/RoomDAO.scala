@@ -30,14 +30,25 @@ object RoomDAO extends DocumentDAO[Room] {
     		case Success(futureroom) 	=> futureroom match {
                 //if we already have the room in the database
     			case Some(room) => {
-    				//get user list of roomname, add username to list, and update with new list as query
-    				update(room.identify, Json.obj("users" -> Json.arr(userID :: room.users))) map {
-                        _ => println(s"Recognized the room $roomname and added user to it!") }
+                    //at this point, need to check if user is in the room. 
+                    //if they're in the room, update their status
+                    if (room.users contains userID){
+                        val newUserMap = room.users - userID + (userID -> true)
+                        update(room.identify, Json.obj("users" -> Json.toJson(newUserMap))) map {
+                        _ => println(s"Recognized the room $roomname and updated $userID's status!")
+                        }
+                    }
+                    //if not, add them and update status
+                    else {
+                        update(room.identify, Json.obj("users" -> Json.toJson((room.users + (userID -> true))))) map {
+                        _ => println(s"Recognized the room $roomname and added $userID to it!")
+                        }
+                    }
     			}
     			//if the room doesn't exist
     			case None => {
-    				//create a new room with list containing user
-    				insert(Room(roomname, List[String](userID))) map {
+    				//create a new room with list containing user -> true
+    				insert(Room(roomname, Map[String, Boolean](userID -> true))) map {
                         _ => println(s"Didn't recognize room $roomname, creating it now!")}
     			}
     		}
